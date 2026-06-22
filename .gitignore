@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+.pytest_cache/
+*.egg
+
+# Environments & secrets
+.env
+.venv/
+venv/
+
+# Team Coding DNA local mining cache (raw comments, never committed)
+.dna/
