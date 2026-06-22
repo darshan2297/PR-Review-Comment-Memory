@@ -1,9 +1,11 @@
 """``dna`` — the Team Coding DNA command line (Typer).
 
-    dna init       scaffold a seed git_comment_memory.md
-    dna mine       fetch + cluster recurring PR review comments
-    dna distill    turn clusters into rules and write the DNA file
-    dna serve      start the LLM-less MCP server (stdio)
+    dna init        scaffold a seed git_comment_memory.md
+    dna mine        fetch + cluster recurring PR review comments
+    dna distill     turn clusters into rules and write the DNA file
+    dna serve       start the LLM-less MCP server (stdio)
+    dna compile     write per-tool instruction files (Claude/Cursor/Copilot/AGENTS)
+    dna install-ci  scaffold a scheduled re-mining GitHub Actions workflow
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from pathlib import Path
 
 import typer
 
-from . import DEFAULT_MEMORY_FILE
+from . import DEFAULT_MEMORY_FILE, load_env
 from . import memory
 from .mining import git_source
 from .mining.cluster import cluster_comments
@@ -35,6 +37,12 @@ CLUSTERS_CACHE = CACHE_DIR / "clusters.json"
 
 def _today() -> str:
     return date.today().isoformat()
+
+
+@app.callback()
+def _bootstrap() -> None:
+    """Load a local .env (GITHUB_TOKEN, DNA_MODEL, ...) before any command runs."""
+    load_env()
 
 
 @app.command()
@@ -126,6 +134,73 @@ def serve(
     from .mcp_server import run  # imported here so `dna --help` stays fast
 
     run()
+
+
+@app.command()
+def compile(  # noqa: A001 — Typer derives the command name from the function name.
+    path: str = typer.Option(DEFAULT_MEMORY_FILE, "--path", help="DNA file to read."),
+    targets: str = typer.Option(
+        "all", "--targets", help="Comma list: claude,cursor,copilot,agents — or 'all'."
+    ),
+):
+    """Compile the DNA into per-tool instruction files so any AI tool auto-applies it.
+
+    Writes a standing 'consult the DNA before writing code' instruction plus a compact
+    rule digest into each tool's own file. Shared files (CLAUDE.md / AGENTS.md /
+    Copilot) get a managed block that preserves your existing content; the Cursor
+    rule file is owned wholesale. Re-running is idempotent.
+    """
+    from . import adapters  # local import keeps `dna --help` fast
+
+    rules = memory.parse(path)
+    if not rules:
+        typer.echo(f"No rules found in {path}. Run `dna init` or `dna distill` first.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        keys = adapters.resolve_targets(targets)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1)
+
+    written = adapters.compile_targets(rules, keys)
+    for key, out_path in written:
+        typer.echo(f"  wrote {out_path} ({key})")
+    typer.echo(f"Compiled {len(rules)} rules into {len(written)} tool file(s).")
+    typer.echo("Commit these so every teammate's AI tool picks up the DNA.")
+
+
+@app.command(name="install-ci")
+def install_ci(
+    cadence: str = typer.Option("daily", "--cadence", help="daily | weekly | monthly."),
+    since: str = typer.Option("30d", "--since", help="Mining window the workflow uses."),
+    path: str = typer.Option(
+        ".github/workflows/team-coding-dna.yml", "--path", help="Where to write the workflow."
+    ),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing workflow file."),
+):
+    """Scaffold a GitHub Actions workflow that re-mines the DNA on a schedule.
+
+    The workflow runs `mine -> distill -> compile` on a cron schedule (and on demand)
+    and opens a pull request whenever the DNA changes, so new review conventions flow
+    back automatically while a human still reviews them before merge.
+    """
+    from . import adapters
+
+    target = Path(path)
+    if target.exists() and not force:
+        typer.echo(f"{target} already exists. Use --force to overwrite.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        content = adapters.ci_workflow_yaml(cadence, since=since)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1)
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    typer.echo(f"Wrote {target} (cadence: {cadence}, since: {since}).")
+    typer.echo("It opens a PR on each change. To mine a different repo or let the PR")
+    typer.echo("trigger CI, add a read-only GitHub PAT secret and reference it in the workflow.")
 
 
 if __name__ == "__main__":

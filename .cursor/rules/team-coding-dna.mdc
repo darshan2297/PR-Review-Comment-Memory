@@ -1,0 +1,21 @@
+---
+description: Team Coding DNA — the team's mined PR-review conventions
+alwaysApply: true
+---
+
+# Team Coding DNA — the team's PR-review conventions
+
+These are conventions mined from this team's pull-request review history.
+**Before writing or changing code, consult them.**
+
+- If the `team-coding-dna` MCP server is available, call its `get_relevant_rules`
+  tool with your diff (or the files you're about to touch) for the scoped, ranked
+  rules, and `get_rule_detail` for the full rationale and precedent of one rule.
+- Otherwise, apply the digest below. Canonical source: `git_comment_memory.md`.
+
+Rules (4), as `id` (confidence, category; scope): rule —
+
+- `RULE-001` (0.95, correctness; python; billing/**, payments/**): Represent monetary values with Decimal; float introduces rounding errors in billing.
+- `RULE-002` (0.90, architecture; python; billing/**, services/**): Route all billing calls through billing.gateway so retries, idempotency and audit logging are applied.
+- `RULE-003` (0.85, security; python, typescript; api/**, routes/**): Every new HTTP route registers with the shared rate-limiter; unthrottled endpoints are a DoS risk.
+- `RULE-004` (0.80, reliability; python): Outbound HTTP goes through utils.retry() for consistent backoff and timeout handling.
