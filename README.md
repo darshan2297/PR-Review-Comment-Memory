@@ -137,6 +137,53 @@ of putting it in the client config. For Claude Code, pass it with
 Then prompt your AI tool to **call `get_relevant_rules` with the diff (or the
 files it's about to touch) before writing or reviewing code.**
 
+---
+
+## Make it automatic
+
+MCP rules are *pull-based*: a tool only reads them when told to, and only MCP-aware
+tools can read them at all. Two commands close that gap so the DNA applies without
+a per-prompt reminder and keeps itself up to date.
+
+### Auto-apply across every tool — `dna compile`
+
+`dna compile` reads `git_comment_memory.md` and writes the instruction file each AI
+tool already reads on its own — a standing "consult the DNA before writing code"
+directive plus a compact rule digest (so the conventions apply even where no MCP
+server is wired up):
+
+```bash
+dna compile                      # all tools
+dna compile --targets cursor,claude   # a subset
+```
+
+| Tool | File written | How it's applied |
+| ---- | ------------ | ---------------- |
+| Claude Code / claude.ai | `CLAUDE.md` | managed block, auto-loaded each session |
+| Cursor | `.cursor/rules/team-coding-dna.mdc` | `alwaysApply: true` rule |
+| GitHub Copilot | `.github/copilot-instructions.md` | managed block |
+| Codex & others | `AGENTS.md` | managed block |
+
+Shared files get a **managed block** (`<!-- BEGIN/END TEAM-CODING-DNA -->`); only that
+region is rewritten, so your own notes in those files are preserved. Re-running is
+idempotent. Commit the generated files so every teammate's tool picks up the DNA.
+
+### Scheduled re-mining — `dna install-ci`
+
+`dna install-ci` scaffolds a GitHub Actions workflow so new review comments flow back
+on their own. It runs `mine → distill → compile` on a cron schedule (and on demand),
+then **opens a pull request** whenever the DNA changes — so conventions stay current
+while a human still reviews them before merge.
+
+```bash
+dna install-ci                   # daily, opens a PR on change
+dna install-ci --cadence weekly  # or weekly / monthly
+```
+
+The workflow uses the built-in `GITHUB_TOKEN` to read this repo's PRs. To mine a
+*different* repo, or to let the generated PR trigger your other CI, add a read-only
+PAT as a secret and reference it in the workflow (one commented line shows where).
+
 ### What the server exposes
 
 | Kind | Name | Purpose |
@@ -160,6 +207,8 @@ files it's about to touch) before writing or reviewing code.**
 | `dna mine --repo owner/name [--since 90d] [--limit 50] [--min-count 2] [--token T]` | Fetch + cluster recurring PR review comments (read-only). Caches to `.dna/`. |
 | `dna distill [--path FILE] [--model] [--min-count 2]` | Turn cached clusters into rules and merge into the DNA file. |
 | `dna serve [--path FILE]` | Start the MCP server over stdio. |
+| `dna compile [--path FILE] [--targets all]` | Write per-tool instruction files (Claude/Cursor/Copilot/AGENTS). |
+| `dna install-ci [--cadence daily] [--since 30d] [--force]` | Scaffold a scheduled re-mining GitHub Actions workflow that opens a PR. |
 
 `--since` accepts `90d`, `12w`, `6mo`, `1y`, or an ISO date.
 
@@ -195,6 +244,7 @@ src/team_coding_dna/
 ├── retrieval.py      # token-optimized scope → rank → cap → dedup (vector-less)
 ├── mcp_server.py     # FastMCP: resource + 3 tools (runs no LLM)
 ├── distill.py        # clusters → rules (heuristic, or optional headless model)
+├── adapters.py       # compile DNA → per-tool instruction files + CI workflow
 ├── seeds.py          # illustrative starter rules for `dna init`
 └── mining/
     ├── git_source.py    # git CLI: repo detection, local context
@@ -223,12 +273,11 @@ pytest
 
 ## Roadmap
 
-Shipped here: **mining** + the **MCP server**. Planned next phases:
+Shipped: **mining**, the **MCP server**, **compiled cross-tool adapters**
+(`dna compile`), and a **scheduled re-mining CI hook** (`dna install-ci`). Planned
+next phases:
 
-- Compiled cross-tool adapters (Cursor `.mdc`, Copilot instructions, `CLAUDE.md` /
-  `AGENTS.md` managed blocks) for tools that prefer their own files.
 - Confidence decay + a learning loop (accepted rules strengthen, ignored rules fade).
-- A git/CI hook for scheduled re-mining.
 - An npm wrapper for one-line install in JS ecosystems.
 
 ## License
