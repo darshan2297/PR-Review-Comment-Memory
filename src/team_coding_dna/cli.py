@@ -15,7 +15,7 @@ from pathlib import Path
 
 import typer
 
-from . import DEFAULT_MEMORY_FILE
+from . import DEFAULT_MEMORY_FILE, load_env
 from . import memory
 from .mining import git_source
 from .mining.cluster import cluster_comments
@@ -35,6 +35,12 @@ CLUSTERS_CACHE = CACHE_DIR / "clusters.json"
 
 def _today() -> str:
     return date.today().isoformat()
+
+
+@app.callback()
+def _bootstrap() -> None:
+    """Load a local .env (GITHUB_TOKEN, DNA_MODEL, ...) before any command runs."""
+    load_env()
 
 
 @app.command()

@@ -88,7 +88,8 @@ This installs the `dna` command and the `team_coding_dna` package.
 dna init
 
 # 2. Mine your real PR history (read-only GitHub token required — see below).
-export GITHUB_TOKEN=ghp_your_read_only_token   # or cp .env.example .env
+#    Put the token in a .env file (auto-loaded) or export it:
+cp .env.example .env        # then edit GITHUB_TOKEN — or: export GITHUB_TOKEN=ghp_...
 dna mine --repo your-org/your-repo --since 90d
 
 # 3. Turn the mined clusters into rules and merge them into git_comment_memory.md.
@@ -120,11 +121,18 @@ claude mcp add team-coding-dna -- dna serve --path /abs/path/to/git_comment_memo
   "mcpServers": {
     "team-coding-dna": {
       "command": "dna",
-      "args": ["serve", "--path", "/abs/path/to/git_comment_memory.md"]
+      "args": ["serve", "--path", "/abs/path/to/git_comment_memory.md"],
+      "env": { "GITHUB_TOKEN": "ghp_your_read_only_token" }
     }
   }
 }
 ```
+
+The `env` block is **optional** — it's only needed if you want to mine live from
+inside your AI client (see the `mine` tool below). Serving rules needs no token.
+You can also drop the token into a `.env` file in the project (auto-loaded) instead
+of putting it in the client config. For Claude Code, pass it with
+`claude mcp add team-coding-dna -e GITHUB_TOKEN=ghp_... -- dna serve --path ...`.
 
 Then prompt your AI tool to **call `get_relevant_rules` with the diff (or the
 files it's about to touch) before writing or reviewing code.**
@@ -136,7 +144,11 @@ files it's about to touch) before writing or reviewing code.**
 | Resource | `dna://git_comment_memory.md` | The full DNA file, on demand (never auto-loaded). |
 | Tool | `get_relevant_rules(diff, languages?, paths?, category?)` | Scoped, ranked, capped rules for this change as terse JSON. |
 | Tool | `get_rule_detail(id)` | Full rationale, example and precedent for one rule. |
-| Tool | `mine(repo?, since?, limit?)` | Grouped raw comments for your model to distill (no server-side model). |
+| Tool | `mine(repo?, since?, limit?)` | Grouped comment clusters for your model to distill. Fetches **live** from GitHub when a token is present (`GITHUB_TOKEN`/`.env`); otherwise returns the `dna mine` cache. |
+
+> **No token needed to serve rules.** `get_relevant_rules` / `get_rule_detail` only
+> read your local `git_comment_memory.md`. A GitHub token is used **only** for
+> mining (the `mine` tool or `dna mine`), and only ever read-only.
 
 ---
 

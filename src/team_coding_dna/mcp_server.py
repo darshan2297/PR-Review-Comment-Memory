@@ -17,7 +17,7 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-from . import DEFAULT_MEMORY_FILE, memory, retrieval
+from . import DEFAULT_MEMORY_FILE, load_env, memory, retrieval
 
 mcp = FastMCP("team-coding-dna")
 
@@ -107,31 +107,82 @@ def get_rule_detail(id: str) -> str:
     return _terse({"error": "not_found", "id": id})
 
 
+def _mine_live(repo: str, since: str | None, limit: int | None) -> dict:
+    """Fetch + cluster live from GitHub and refresh the local cache. Raises on error."""
+    from .mining.cluster import cluster_comments
+    from .mining.github_source import fetch_review_comments
+
+    token = os.environ.get("GITHUB_TOKEN")
+    comments = fetch_review_comments(repo, since=since or "90d", limit=limit or 50, token=token)
+    clusters = cluster_comments(comments)
+    payload = [cl.to_dict() for cl in clusters]
+
+    # Refresh the same cache `dna mine` writes, so `dna distill` can reuse it.
+    try:
+        cache_dir = Path(".dna")
+        cache_dir.mkdir(exist_ok=True)
+        (cache_dir / "comments.json").write_text(
+            _terse({"repo": repo, "comments": [c.to_dict() for c in comments]}),
+            encoding="utf-8",
+        )
+        (cache_dir / "clusters.json").write_text(_terse(payload), encoding="utf-8")
+    except OSError:
+        pass  # caching is best-effort; the live result is still returned
+
+    return {"clusters": payload, "source": "live", "repo": repo}
+
+
 @mcp.tool(
     description=(
-        "Return grouped raw review comments (clusters) for interactive mining, so "
-        "YOUR model can summarise them into rules — this server runs no model. Reads "
-        "the local mining cache from `dna mine`; if none exists, returns guidance."
+        "Mine recurring PR review comments and return them grouped into clusters, so "
+        "YOUR model can summarise each into a rule — this server runs no model. If a "
+        "GitHub token is available (GITHUB_TOKEN env or a local .env) it fetches live "
+        "from the repo; otherwise it returns the cached result from `dna mine`, or "
+        "guidance if neither exists. `repo` is 'owner/name' (auto-detected from the "
+        "git remote when omitted)."
     )
 )
 def mine(repo: str | None = None, since: str | None = None, limit: int | None = None) -> str:
-    """Return cached comment clusters for the client's model to distill."""
+    """Live-fetch clusters when a token is present, else fall back to cache/guidance."""
     cache = Path(".dna") / "clusters.json"
+
+    if not repo:
+        try:
+            from .mining import git_source
+
+            repo = git_source.current_repo_slug()
+        except Exception:  # noqa: BLE001 - detection is best-effort
+            repo = None
+
+    # 1) Live fetch when we have both a repo and a token.
+    live_error = ""
+    if repo and os.environ.get("GITHUB_TOKEN"):
+        try:
+            return _terse(_mine_live(repo, since, limit))
+        except Exception as exc:  # noqa: BLE001 - network/auth/repo -> degrade gracefully
+            live_error = str(exc)
+
+    # 2) Fall back to the cache written by a prior `dna mine`.
     if cache.exists():
         clusters = json.loads(cache.read_text(encoding="utf-8"))
         return _terse({"clusters": clusters, "source": "cache"})
-    return _terse(
-        {
-            "clusters": [],
-            "hint": "No mining cache. Run `dna mine --repo owner/name --since 90d` first, "
-            "then call mine again. Summarise each cluster into one rule and add it to "
-            "git_comment_memory.md (id, one-line rule, confidence, languages, paths).",
-        }
-    )
+
+    # 3) Nothing available — explain exactly what to do.
+    result = {
+        "clusters": [],
+        "hint": "No clusters available. Set GITHUB_TOKEN (or add it to a .env file) and "
+        "ensure this repo has a github remote, then call mine again; or run "
+        "`dna mine --repo owner/name --since 90d` on the CLI. Summarise each returned "
+        "cluster into one rule and add it to git_comment_memory.md.",
+    }
+    if live_error:
+        result["error"] = live_error
+    return _terse(result)
 
 
 def run() -> None:
     """Entry point used by ``dna serve``."""
+    load_env()
     mcp.run(transport="stdio")
 
 
