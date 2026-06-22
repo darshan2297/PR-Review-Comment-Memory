@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "team-coding-dna"
+version = "0.1.0"
+description = "Mine a team's PR review history into a versioned git_comment_memory.md and serve it to any AI coding tool via an LLM-less MCP server."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Team Coding DNA" }]
+keywords = ["mcp", "code-review", "ai", "pull-request", "conventions"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "typer>=0.12",
+    "mcp>=1.2.0",
+    "PyGithub>=2.3",
+]
+
+[project.optional-dependencies]
+# Optional headless distillation model for CI mining (the team's own model).
+# The MCP server itself bundles no LLM.
+llm = ["httpx>=0.27"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+dna = "team_coding_dna.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/your-org/pr-review-comment-memory"
+Issues = "https://github.com/your-org/pr-review-comment-memory/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/team_coding_dna"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
